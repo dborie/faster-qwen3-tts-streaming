@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name        = "faster-qwen3-tts-streaming"
+version     = "0.1.0"
+description = "Streaming text-input extension for faster-qwen3-tts: feed text in chunks while the model decodes."
+readme      = "README.md"
+requires-python = ">=3.10"
+license     = { text = "Apache-2.0" }
+authors     = [{ name = "Damien Borie" }]
+keywords    = ["tts", "speech", "streaming", "qwen3", "qwen3-tts", "faster-qwen3-tts"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+dependencies = [
+    "faster-qwen3-tts",
+    "torch",
+    "numpy",
+]
+
+[project.optional-dependencies]
+demo = [
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "python-multipart",
+]
+
+[project.urls]
+Homepage    = "https://github.com/QwenLM/Qwen3-TTS"
+"Upstream model" = "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+
+[tool.setuptools]
+packages = ["faster_qwen3_tts_streaming"]

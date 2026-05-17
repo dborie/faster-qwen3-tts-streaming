@@ -1,0 +1,5 @@
+__pycache__/
+
+# Uploaded reference voices are user data; the upload endpoint writes
+# here at runtime and we never want to commit those.
+demo/source voice/
