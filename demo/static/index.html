@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Qwen3-TTS clone demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2em auto; padding: 0 1em 40vh; color: #222; }
+  h1 { margin-bottom: 0.2em; }
+  p.lead { color: #666; margin-top: 0; }
+  textarea { width: 100%; min-height: 6em; font-size: 1em; box-sizing: border-box; padding: 0.5em; }
+  fieldset { border: 1px solid #ddd; margin: 1em 0; padding: 0.6em 1em; }
+  legend { color: #888; padding: 0 0.3em; }
+  .row { display: flex; gap: 1em; flex-wrap: wrap; }
+  label { display: flex; flex-direction: column; font-size: 0.9em; color: #555; }
+  /* hidden attribute must beat the label { display: flex } rule above */
+  [hidden] { display: none !important; }
+  /* loaded-model tag chips */
+  .tag-list  { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.5em; min-height: 1.6em; font-size: 0.85em; }
+  .tag-list:empty::before { content: "(no models loaded yet)"; color: #999; font-style: italic; }
+  .tag       { display: inline-flex; align-items: center; gap: 0.4em; background: #e3f2fd; color: #1565c0; padding: 0.2em 0.5em; border-radius: 12px; }
+  .tag .x    { cursor: pointer; font-weight: bold; color: #1565c0; opacity: 0.6; }
+  .tag .x:hover { opacity: 1; color: #c62828; }
+  input[type="number"], select { font-size: 1em; padding: 0.3em; }
+  input[type="number"] { width: 5em; }
+  .row > label { flex: 0 0 auto; }
+  button { padding: 0.6em 1.4em; font-size: 1em; cursor: pointer; }
+  #status   { margin-top: 0.6em; color: #666; font-size: 0.9em; min-height: 1.4em; }
+  #reference { font-size: 0.85em; color: #777; background: #f4f4f4; padding: 0.5em 0.8em; border-radius: 4px; margin-bottom: 0; }
+  .warn      { font-size: 0.8em; color: #b71c1c; background: #ffebee; border-left: 3px solid #ef5350; padding: 0.4em 0.6em; margin-top: 0.6em; border-radius: 3px; }
+  .pushed-preview { font-size: 0.85em; color: #2e7d32; background: #e8f5e9; padding: 0.4em 0.6em; border-left: 3px solid #4caf50; border-radius: 3px; margin: 0 0 0.3em 0; min-height: 1.2em; white-space: pre-wrap; }
+  .pushed-preview:empty::before { content: "(nothing pushed yet)"; color: #999; font-style: italic; }
+  code { font-family: ui-monospace, monospace; background: #eee; padding: 0 0.3em; }
+  .mode-help { font-size: 0.8em; color: #888; margin-top: 0.3em; }
+
+  /* timeline */
+  .timeline-wrap     { position: relative; margin-top: 1em; }
+  .timeline-actions  { position: absolute; top: -1.6em; right: 0; display: flex; gap: 0.3em; }
+  .timeline-actions button { width: 1.4em; height: 1.4em; padding: 0; line-height: 1; font-size: 1em; background: transparent; border: 1px solid #ccc; color: #888; cursor: pointer; border-radius: 4px; }
+  .timeline-actions button:hover { color: #1976d2; border-color: #1976d2; }
+  .clear-x:hover     { color: #c62828 !important; border-color: #c62828 !important; }
+  .timeline-row    { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 0.5em; margin-bottom: 0.3em; }
+  .timeline-row > .label { font-size: 0.8em; color: #666; text-align: right; }
+  .timeline-track  { position: relative; height: 18px; background: #f0f0f0; border-radius: 3px; }
+  .timeline-bar    { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.85; }
+  .bar-gen         { background: #66bb6a; }
+  .bar-play        { background: #42a5f5; }
+  .bar-endlabel    { position: absolute; top: 50%; transform: translate(4px, -50%); font-size: 0.75em; color: #333; white-space: nowrap; pointer-events: none; }
+  .events-track    { position: relative; height: 14px; background: transparent; }
+  .event-tick      { position: absolute; top: 0; height: 14px; width: 2px; background: #ff9800; cursor: help; z-index: 1; }
+  .event-tick.complete { background: #d32f2f; }
+  .flush-bar       { position: absolute; top: 0; height: 5px; background: #1976d2; opacity: 0.9; border-radius: 2px; cursor: pointer; z-index: 2; }
+  .flush-bar:hover { height: 7px; opacity: 1; }
+  .flush-bar.alt   { background: #4fc3f7; }
+  .timeline-axis   { display: grid; grid-template-columns: 80px 1fr; gap: 0.5em; margin-top: 0.2em; font-size: 0.75em; color: #888; }
+  .timeline-axis > .axis-ticks { position: relative; height: 1em; }
+  .timeline-axis .tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .timeline-axis .tick.right { transform: translateX(-100%); }
+  .timeline-axis .tick.left  { transform: translateX(0); }
+
+  /* hover tooltip for the flush bars (more reliable than native title) */
+  #flush-tooltip {
+    position: fixed; z-index: 9999; pointer-events: none;
+    max-width: 480px; padding: 0.5em 0.7em;
+    background: #222; color: #f5f5f5; border-radius: 4px;
+    font-size: 0.85em; line-height: 1.3;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  #flush-tooltip .ft-head {
+    display: block; font-weight: 600; color: #90caf9;
+    margin-bottom: 0.25em;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body                   { background: #1a1a1a; color: #e0e0e0; }
+    p.lead                 { color: #999; }
+    fieldset               { border-color: #444; }
+    legend                 { color: #999; }
+    label                  { color: #aaa; }
+    input[type="number"],
+    input[type="text"],
+    input[type="file"],
+    select, textarea       { background: #2a2a2a; color: #e0e0e0; border: 1px solid #555; }
+    button                 { background: #2a2a2a; color: #e0e0e0; border: 1px solid #555; }
+    button:disabled        { background: #1f1f1f; color: #666; }
+    code                   { background: #333; }
+    #status                { color: #999; }
+    #reference             { background: #2a2a2a; color: #aaa; }
+    .pushed-preview        { background: #1e3a23; color: #a5d6a7; border-left-color: #66bb6a; }
+    .pushed-preview:empty::before { color: #666; }
+    .tag-list:empty::before { color: #666; }
+    .tag                   { background: #15334a; color: #90caf9; border-color: #2c5980; }
+    .tag .x                { color: #90caf9; }
+    .mode-help             { color: #888; }
+    .timeline-track        { background: #2a2a2a; }
+    .bar-endlabel          { color: #e0e0e0; }
+    .timeline-axis         { color: #888; }
+    .warn                  { background: #3a1818; color: #ef9a9a; border-left-color: #d32f2f; }
+    .timeline-actions button { color: #999; border-color: #555; }
+    .timeline-actions button:hover { color: #64b5f6; border-color: #64b5f6; }
+    .clear-x:hover         { color: #ef5350 !important; border-color: #ef5350 !important; }
+  }
+</style>
+</head>
+<body>
+<h1>Qwen3-TTS demo</h1>
+<p class="lead">Pick a model + engine, type some text, watch generation vs. playback on the timeline.</p>
+
+<fieldset>
+  <legend>Reference voice (Base / clone mode only)</legend>
+  <div id="reference">loading reference ...</div>
+  <div class="row" style="margin-top: 0.6em; align-items: flex-end;">
+    <label>WAV file
+      <input id="ref_audio_file" type="file" accept=".wav,audio/wav">
+    </label>
+    <label style="flex: 1 1 18em;">Transcript (what is said in the WAV)
+      <textarea id="ref_text" style="min-height: 3em;"></textarea>
+    </label>
+    <button id="ref_upload" type="button">Upload</button>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Model</legend>
+  <div class="row">
+    <label>Size
+      <select id="model_size">
+        <option value="0.6B">0.6B</option>
+        <option value="1.7B" selected>1.7B</option>
+      </select>
+    </label>
+    <label>Type
+      <select id="model_type">
+        <option value="Base"        selected>Base (voice clone, uses ref audio)</option>
+        <option value="CustomVoice">CustomVoice (built-in speaker preset)</option>
+        <option value="VoiceDesign">VoiceDesign (free-form instruct)</option>
+      </select>
+    </label>
+    <label id="speaker-label" hidden>Voice
+      <select id="speaker"></select>
+    </label>
+    <label id="instruct-label" hidden style="flex: 1 1 14em;">Instruct (style description)
+      <input id="instruct" type="text" value="Speak in a clear, neutral voice.">
+    </label>
+  </div>
+  <div class="tag-list" id="loaded-models"></div>
+  <div class="row" style="margin-top: 0.6em;">
+    <button id="warmup"     type="button">Warm up selected model</button>
+    <button id="warmup_all" type="button">Warm up all variants</button>
+  </div>
+  <div class="warn">
+    Warming up all variants loads every (size, type) into VRAM with no
+    eviction. Expect ~3 GB per variant; on the full 5-variant matrix
+    that adds up to ~15 GB and will OOM smaller GPUs. Unload variants
+    you don't need via the chips above.
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Engine</legend>
+  <div class="row" style="align-items: center;">
+    <label>Mode
+      <select id="mode">
+        <option value="normal">normal (vanilla qwen_tts, no CUDA graphs)</option>
+        <option value="faster" selected>faster (CUDA graphs, buffered)</option>
+        <option value="faster_stream">faster + streaming output (CUDA graphs, flush per chunk)</option>
+        <option value="input_stream">streaming text input (type-as-you-go)</option>
+        <option value="smart_input_stream">streaming text input + smart batching</option>
+      </select>
+    </label>
+  </div>
+  <div class="mode-help" id="mode-help">All engines share the model + sampling above; only the decode loop and HTTP delivery shape differ.</div>
+</fieldset>
+
+<fieldset>
+  <legend>Sampling</legend>
+  <div class="row">
+    <label>Language
+      <select id="language">
+        <option>English</option><option>Chinese</option><option>Japanese</option>
+        <option>Korean</option><option>French</option><option>German</option>
+        <option>Spanish</option><option>Italian</option><option>Portuguese</option>
+        <option>Russian</option>
+      </select>
+    </label>
+    <label>Temperature<input id="temperature" type="number" step="0.05" value="0.9"></label>
+    <label>Top-K<input id="top_k" type="number" step="1" value="50"></label>
+    <label>Repetition penalty<input id="repetition_penalty" type="number" step="0.01" value="1.05"></label>
+    <label>Seed (-1 = random)<input id="seed" type="number" step="1" value="-1"></label>
+  </div>
+</fieldset>
+
+<label>Text to synthesize
+<textarea id="text">Hello, this is a small test of the voice cloning model.</textarea>
+<div id="pushed-preview" class="pushed-preview" hidden></div>
+</label>
+
+<fieldset>
+  <legend>Generation settings</legend>
+  <div class="row">
+    <label>Expected total (ms) - timeline scale<input id="expected_ms" type="number" step="100" min="500" value="5000"></label>
+    <label id="push-delay-label" hidden>Auto-push delay (ms)<input id="push_delay_ms" type="number" step="50" min="0" value="100"></label>
+    <label id="smart-min-initial-label" hidden>Bootstrap min (X)<input id="smart_min_initial_words" type="number" step="1" min="1" value="5"></label>
+    <label id="smart-max-initial-label" hidden>Bootstrap max (Y)<input id="smart_max_initial_words" type="number" step="1" min="1" value="30"></label>
+    <label id="smart-safety-margin-label" hidden>Audio margin (Z, ms)<input id="smart_safety_margin_ms" type="number" step="50" min="50" value="300"></label>
+  </div>
+</fieldset>
+
+<div class="row">
+  <button id="go">Synthesize</button>
+  <button id="stop" type="button" hidden>Stop</button>
+</div>
+<div id="status"></div>
+
+<div id="flush-tooltip" hidden></div>
+
+<div class="timeline-wrap" id="timeline" hidden>
+  <div class="timeline-actions">
+    <button id="replay-result" type="button" title="Replay audio">▶</button>
+    <button id="save-result"   type="button" title="Save audio as WAV">⬇</button>
+    <button id="clear-result" class="clear-x" type="button" title="Clear last result">×</button>
+  </div>
+  <div class="timeline-row">
+    <div class="label">text in</div>
+    <div class="events-track" id="events-track"></div>
+  </div>
+  <div class="timeline-row">
+    <div class="label">generating</div>
+    <div class="timeline-track">
+      <div id="bar-gen" class="timeline-bar bar-gen" style="left:0;width:0">
+        <span class="bar-endlabel" id="bar-gen-end"></span>
+      </div>
+    </div>
+  </div>
+  <div class="timeline-row">
+    <div class="label">playing</div>
+    <div class="timeline-track">
+      <div id="bar-play" class="timeline-bar bar-play" style="left:0;width:0">
+        <span class="bar-endlabel" id="bar-play-end"></span>
+      </div>
+    </div>
+  </div>
+  <div class="timeline-axis">
+    <div></div>
+    <div class="axis-ticks" id="axis-ticks"></div>
+  </div>
+</div>
+
+<script>
+let referenceSet = false;
+
+async function refresh_reference() {
+  try {
+    const r = await fetch('/reference');
+    const info = await r.json();
+    const host = document.getElementById('reference');
+    referenceSet = !!info.file && !!(info.text || '').trim();
+    if (!info.file) {
+      host.innerHTML = '<em>(no reference uploaded yet - upload a WAV + transcript below to use Base / clone mode)</em>';
+    } else if (!(info.text || '').trim()) {
+      host.innerHTML =
+        'Reference: <code>' + info.file + '</code> - <em>(transcript is empty; clone mode will fail)</em>';
+    } else {
+      host.innerHTML =
+        'Reference: <code>' + info.file + '</code> - ' + info.text;
+    }
+  } catch (e) {
+    referenceSet = false;
+    document.getElementById('reference').textContent = 'No reference loaded: ' + e.message;
+  }
+  refreshGoGate();
+}
+
+function refreshGoGate() {
+  const type_ = document.getElementById('model_type').value;
+  const needsRef = (type_ === 'Base');
+  const blocked  = needsRef && !referenceSet;
+  const go   = document.getElementById('go');
+  const status = document.getElementById('status');
+  if (blocked) {
+    go.disabled  = true;
+    go.title     = 'Base (clone) needs a reference WAV + transcript - upload one above.';
+    if (!status.textContent || status.dataset.gate === '1') {
+      status.textContent = 'Base (clone) mode needs a reference voice. Upload a WAV + transcript above first.';
+      status.dataset.gate = '1';
+    }
+  } else {
+    go.disabled  = false;
+    go.title     = '';
+    if (status.dataset.gate === '1') {
+      status.textContent = '';
+      delete status.dataset.gate;
+    }
+  }
+}
+
+async function uploadReference() {
+  const status = document.getElementById('status');
+  const fileInput = document.getElementById('ref_audio_file');
+  const transcript = document.getElementById('ref_text').value;
+  if (!fileInput.files || fileInput.files.length === 0) {
+    status.textContent = 'Pick a WAV file first.';
+    return;
+  }
+  const file = fileInput.files[0];
+  const button = document.getElementById('ref_upload');
+  button.disabled = true;
+  status.textContent = 'Uploading reference ...';
+  try {
+    const formData = new FormData();
+    formData.append('audio', file, file.name);
+    formData.append('text', transcript);
+    const r = await fetch('/reference', { method: 'POST', body: formData });
+    if (!r.ok) throw new Error(await r.text());
+    const info = await r.json();
+    status.textContent = 'Reference uploaded: ' + info.file + ' (' + (info.bytes / 1024).toFixed(1) + ' KB).';
+    await refresh_reference();
+  } catch (e) {
+    status.textContent = 'Upload failed: ' + e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function readUint32LE(bytes, offset) {
+  return bytes[offset] | (bytes[offset+1] << 8) | (bytes[offset+2] << 16) | (bytes[offset+3] << 24);
+}
+
+function pcm16ToFloat32(uint8) {
+  // expects byte-aligned int16 LE; returns Float32Array in [-1, 1)
+  const n = Math.floor(uint8.byteLength / 2);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const lo = uint8[i*2];
+    const hi = uint8[i*2 + 1];
+    let v = (hi << 8) | lo;
+    if (v & 0x8000) v -= 0x10000;
+    out[i] = v / 32768;
+  }
+  return out;
+}
+
+// Stateful PCM player driven by Web Audio. Carries odd bytes across
+// chunks so int16 sample alignment survives mid-stream TCP splits,
+// then schedules audio onto audioCtx in 1-second sub-buffers (some
+// Web Audio implementations choke on one giant multi-second buffer).
+// getSampleRate is a thunk so the caller can hand it over before the
+// rate is actually known (the WAV header parse / WS 'ready' frame
+// sets it).
+function createPcmPlayer(audioCtx, { getSampleRate, tStart }) {
+  let nextPlayTime = 0;
+  let ctxPlayStart = null;
+  let tFirstAudio  = null;
+  let totalBytes   = 0;
+  let oddByte      = -1;
+  let underrunCount = 0;
+  let underrunTotalSecs = 0;
+  // Initial lookahead before the first chunk plays. A small value
+  // (eg 50 ms) leaves no slack: any jitter in chunk arrival pushes
+  // nextPlayTime behind currentTime and the engine has to insert a
+  // gap, which the listener hears as a stutter. 250 ms costs us a
+  // bit of first-audio latency but absorbs typical model-side
+  // jitter without underrunning.
+  const PREBUFFER_SECS = 0.25;
+  // Some browsers create AudioContexts in 'suspended' state even on
+  // user-gesture creation. Kick it explicitly so the very first
+  // buffer source actually plays at the expected time instead of
+  // sitting in the queue while the engine wakes up.
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  // Keep every Float32 piece we play so the caller can rebuild a full
+  // AudioBuffer and replay later. Doubles RAM cost of the audio, but
+  // 30 s at 24 kHz is ~3 MB - cheap for a demo.
+  const pieces = [];
+
+  return {
+    play(uint8) {
+      let data;
+      if (oddByte >= 0) {
+        data = new Uint8Array(1 + uint8.length);
+        data[0] = oddByte;
+        data.set(uint8, 1);
+        oddByte = -1;
+      } else {
+        data = uint8;
+      }
+      if ((data.length & 1) !== 0) {
+        oddByte = data[data.length - 1];
+        data = data.subarray(0, data.length - 1);
+      }
+      if (data.length === 0) return;
+
+      const sampleRate = getSampleRate();
+      const float32    = pcm16ToFloat32(data);
+      pieces.push(float32);
+      totalBytes += data.length;
+      if (tFirstAudio === null) {
+        tFirstAudio  = performance.now() - tStart;
+        ctxPlayStart = audioCtx.currentTime + PREBUFFER_SECS;
+        nextPlayTime = ctxPlayStart;
+      }
+      const stride = sampleRate;
+      for (let off = 0; off < float32.length; off += stride) {
+        const piece = float32.subarray(off, Math.min(off + stride, float32.length));
+        const buf   = audioCtx.createBuffer(1, piece.length, sampleRate);
+        buf.getChannelData(0).set(piece);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(audioCtx.destination);
+        let startAt = nextPlayTime;
+        if (startAt < audioCtx.currentTime) {
+          const gap = audioCtx.currentTime - startAt;
+          underrunCount     += 1;
+          underrunTotalSecs += gap;
+          // eslint-disable-next-line no-console
+          console.warn('[pcm-player] underrun: schedule fell '
+            + (gap * 1000).toFixed(1) + ' ms behind (#' + underrunCount + ')');
+          startAt = audioCtx.currentTime;
+        }
+        src.start(startAt);
+        nextPlayTime = startAt + buf.duration;
+      }
+    },
+    replay() {
+      return this.replaySlice(0, null);
+    },
+    replaySlice(startSample, endSample) {
+      const sampleRate = getSampleRate();
+      if (!sampleRate) return null;
+      const totalSamples = pieces.reduce((n, p) => n + p.length, 0);
+      if (totalSamples === 0) return null;
+      const start = Math.max(0, Math.min(startSample | 0, totalSamples));
+      const end   = (endSample === null || endSample === undefined)
+        ? totalSamples
+        : Math.max(start, Math.min(endSample | 0, totalSamples));
+      const length = end - start;
+      if (length <= 0) return null;
+      // The original context may have been closed by Stop; spin up a
+      // fresh one so the stored Float32 pieces can still be replayed.
+      const ctx = (audioCtx.state === 'closed')
+        ? new (window.AudioContext || window.webkitAudioContext)()
+        : audioCtx;
+      const buf = ctx.createBuffer(1, length, sampleRate);
+      const out = buf.getChannelData(0);
+      // Walk pieces and copy only the [start, end) range.
+      let pieceStart = 0;
+      let outOff = 0;
+      for (const p of pieces) {
+        const pieceEnd = pieceStart + p.length;
+        if (pieceEnd > start && pieceStart < end) {
+          const copyFrom = Math.max(0, start - pieceStart);
+          const copyTo   = Math.min(p.length, end - pieceStart);
+          out.set(p.subarray(copyFrom, copyTo), outOff);
+          outOff += (copyTo - copyFrom);
+        }
+        pieceStart = pieceEnd;
+        if (pieceStart >= end) break;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start();
+      return {
+        stop()  { try { src.stop(); } catch (_) {} },
+        onEnded(cb) { src.onended = cb; },
+      };
+    },
+    toWavBlob() {
+      const sampleRate = getSampleRate();
+      if (!sampleRate) return null;
+      const totalSamples = pieces.reduce((n, p) => n + p.length, 0);
+      if (totalSamples === 0) return null;
+      const dataBytes = totalSamples * 2;             // int16 mono
+      const ab = new ArrayBuffer(44 + dataBytes);
+      const dv = new DataView(ab);
+      // RIFF header
+      dv.setUint32(0,  0x46464952, true);             // "RIFF"
+      dv.setUint32(4,  36 + dataBytes, true);
+      dv.setUint32(8,  0x45564157, true);             // "WAVE"
+      // fmt subchunk
+      dv.setUint32(12, 0x20746d66, true);             // "fmt "
+      dv.setUint32(16, 16, true);                     // chunk size
+      dv.setUint16(20, 1, true);                      // PCM
+      dv.setUint16(22, 1, true);                      // channels
+      dv.setUint32(24, sampleRate, true);
+      dv.setUint32(28, sampleRate * 2, true);         // byte rate
+      dv.setUint16(32, 2, true);                      // block align
+      dv.setUint16(34, 16, true);                     // bits per sample
+      // data subchunk
+      dv.setUint32(36, 0x61746164, true);             // "data"
+      dv.setUint32(40, dataBytes, true);
+      // PCM samples - convert float32 [-1, 1) -> int16 LE
+      const int16 = new Int16Array(ab, 44, totalSamples);
+      let off = 0;
+      for (const p of pieces) {
+        for (let i = 0; i < p.length; i++) {
+          let v = Math.round(p[i] * 32768);
+          if (v > 32767)  v = 32767;
+          if (v < -32768) v = -32768;
+          int16[off + i] = v;
+        }
+        off += p.length;
+      }
+      return new Blob([ab], { type: 'audio/wav' });
+    },
+    state() {
+      return {
+        tFirstAudio,
+        ctxPlayStart,
+        nextPlayTime,
+        totalBytes,
+        underrunCount,
+        underrunTotalMs: underrunTotalSecs * 1000,
+        projectedPlayEnd: ctxPlayStart === null
+          ? null
+          : tFirstAudio + (nextPlayTime - ctxPlayStart) * 1000,
+      };
+    },
+  };
+}
+
+// requestAnimationFrame-driven timeline redraw. The caller provides
+// a getState() returning { tFirstAudio, projectedPlayEnd, tGenEnd,
+// tPlayEnd }. Stops itself when generation is done and audio has
+// played out.
+function createTimelineTicker({ tStart, expectedMs, getState }) {
+  let rafId = null;
+  const tick = () => {
+    const now = performance.now() - tStart;
+    const s   = getState();
+    let playEnd;
+    if (s.tGenEnd !== null) {
+      // Generation finished: show the bar's end either at the explicit
+      // tPlayEnd if set, otherwise wherever playback is currently
+      // scheduled to finish.
+      playEnd = s.tPlayEnd !== null ? s.tPlayEnd : s.projectedPlayEnd;
+    } else if (s.projectedPlayEnd !== null && now >= s.projectedPlayEnd) {
+      // Streaming response and playback has caught up to the last
+      // scheduled buffer - show that as the (current) playback end.
+      playEnd = s.projectedPlayEnd;
+    } else {
+      playEnd = null;
+    }
+    renderTimeline({
+      now,
+      tGenStart:  0,
+      tGenEnd:    s.tGenEnd,
+      tPlayStart: s.tFirstAudio,
+      tPlayEnd:   playEnd,
+    }, expectedMs);
+    const done = (s.tGenEnd !== null) && (s.tPlayEnd !== null) && (now >= s.tPlayEnd);
+    if (done) { rafId = null; return; }
+    rafId = requestAnimationFrame(tick);
+  };
+  tick();
+  return {
+    poke() { if (rafId === null) tick(); },
+    stop() {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    },
+  };
+}
+
+// list of { ms: relative-to-tStart, label, kind: 'text'|'complete' }
+let currentTextEvents = [];
+
+function setTextEvents(events) {
+  currentTextEvents = events;
+}
+
+function addTextEvent(ev) {
+  currentTextEvents.push(ev);
+}
+
+function showFlushTooltip(e) {
+  const bar = e.currentTarget;
+  const text = bar.dataset.flushText || '';
+  const tip  = document.getElementById('flush-tooltip');
+  tip.innerHTML = '';
+  const head = document.createElement('span');
+  head.className = 'ft-head';
+  head.textContent = (text ? 'Pushed' : 'Pushed (empty)')
+                   + ' — click to play this chunk';
+  tip.appendChild(head);
+  if (text) tip.appendChild(document.createTextNode(text));
+  tip.hidden = false;
+  moveFlushTooltip(e);
+}
+
+function moveFlushTooltip(e) {
+  const tip = document.getElementById('flush-tooltip');
+  if (tip.hidden) return;
+  const margin = 12;
+  const rect = tip.getBoundingClientRect();
+  let x = e.clientX + margin;
+  let y = e.clientY + margin;
+  if (x + rect.width  > window.innerWidth)  x = e.clientX - rect.width - margin;
+  if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - margin;
+  tip.style.left = Math.max(4, x) + 'px';
+  tip.style.top  = Math.max(4, y) + 'px';
+}
+
+function hideFlushTooltip() {
+  document.getElementById('flush-tooltip').hidden = true;
+}
+
+function renderEventsTrack(scale) {
+  const track = document.getElementById('events-track');
+  // Hide the hover tooltip before tearing down its anchor element -
+  // destroying the hovered bar via innerHTML wipe does NOT fire
+  // mouseleave, so without this the tooltip sticks around forever.
+  hideFlushTooltip();
+  track.innerHTML = '';
+  const pct = (ms) => (ms / scale * 100).toFixed(2) + '%';
+
+  const flushes = currentTextEvents
+    .filter(e => e.kind === 'flush')
+    .sort((a, b) => a.ms - b.ms);
+  let prevEnd = 0;
+  let altClass = false;
+  for (let i = 0; i < flushes.length; i++) {
+    const ev     = flushes[i];
+    const nextEv = flushes[i + 1];
+    const startMs = Math.min(prevEnd, scale);
+    const endMs   = Math.min(ev.ms, scale);
+    if (endMs > startMs) {
+      const bar = document.createElement('span');
+      bar.className = 'flush-bar' + (altClass ? ' alt' : '');
+      bar.style.left  = pct(startMs);
+      bar.style.width = pct(endMs - startMs);
+      bar.dataset.flushText = ev.label || '';
+      // Audio range for this flush: from this flush's audioStartSample
+      // to the next flush's audioStartSample (or end-of-stream).
+      const audioStart = (typeof ev.audioStartSample === 'number')
+        ? ev.audioStartSample : 0;
+      const audioEnd = (nextEv && typeof nextEv.audioStartSample === 'number')
+        ? nextEv.audioStartSample : '';
+      bar.dataset.audioStart = String(audioStart);
+      bar.dataset.audioEnd   = String(audioEnd);
+      bar.addEventListener('mouseenter', showFlushTooltip);
+      bar.addEventListener('mousemove',  moveFlushTooltip);
+      bar.addEventListener('mouseleave', hideFlushTooltip);
+      bar.addEventListener('click',      playFlushChunkFromBar);
+      track.appendChild(bar);
+    }
+    prevEnd = ev.ms;
+    altClass = !altClass;
+  }
+
+  for (const ev of currentTextEvents) {
+    if (ev.kind === 'flush') continue;
+    const t = document.createElement('span');
+    t.className = 'event-tick' + (ev.kind === 'complete' ? ' complete' : '');
+    t.style.left = pct(Math.min(ev.ms, scale));
+    t.title = (ev.kind === 'complete' ? 'complete: ' : 'text: ') + (ev.label || '');
+    track.appendChild(t);
+  }
+}
+
+function renderTimeline(state, expectedMs) {
+  // state = { now, tGenStart, tGenEnd|null, tPlayStart|null, tPlayEnd|null }
+  const wrap = document.getElementById('timeline');
+  wrap.hidden = false;
+
+  const genRightAbs  = (state.tGenEnd !== null) ? state.tGenEnd : state.now;
+  const playLeftAbs  = state.tPlayStart;
+  const playRightAbs = (state.tPlayStart !== null)
+    ? ((state.tPlayEnd !== null) ? Math.min(state.now, state.tPlayEnd) : state.now)
+    : null;
+
+  const scale = Math.max(expectedMs, genRightAbs, playRightAbs ?? 0, 1);
+  const pct = (ms) => (ms / scale * 100).toFixed(2) + '%';
+
+  // bars + their inline end-labels
+  const gen = document.getElementById('bar-gen');
+  gen.style.left  = '0';
+  gen.style.width = pct(genRightAbs);
+  document.getElementById('bar-gen-end').textContent =
+    (state.tGenEnd !== null ? Math.round(state.tGenEnd) : Math.round(state.now)) + ' ms';
+
+  const play = document.getElementById('bar-play');
+  if (playLeftAbs !== null) {
+    play.style.left  = pct(playLeftAbs);
+    play.style.width = pct(playRightAbs - playLeftAbs);
+    document.getElementById('bar-play-end').textContent = Math.round(playRightAbs) + ' ms';
+  } else {
+    play.style.left  = '0';
+    play.style.width = '0';
+    document.getElementById('bar-play-end').textContent = '';
+  }
+
+  // Two anchor ticks only: start (0) at the left, scale at the right.
+  // Per-bar values live inline on the bars above.
+  const ticks = document.getElementById('axis-ticks');
+  ticks.innerHTML = '';
+  const startTick = document.createElement('span');
+  startTick.className = 'tick left';
+  startTick.style.left = '0';
+  startTick.textContent = '0';
+  ticks.appendChild(startTick);
+
+  const endTick = document.createElement('span');
+  endTick.className = 'tick right';
+  endTick.style.left = '100%';
+  endTick.textContent = Math.round(scale) + ' ms';
+  ticks.appendChild(endTick);
+
+  renderEventsTrack(scale);
+}
+
+async function synth() {
+  stopReplay();
+  const status = document.getElementById('status');
+  const button = document.getElementById('go');
+  status.textContent = 'Synthesizing ...';
+  button.disabled = true;
+
+  const expectedMs = Math.max(500, parseInt(document.getElementById('expected_ms').value, 10) || 5000);
+
+  const body = {
+    text:               document.getElementById('text').value,
+    mode:               document.getElementById('mode').value,
+    language:           document.getElementById('language').value,
+    temperature:        parseFloat(document.getElementById('temperature').value),
+    top_k:              parseInt(document.getElementById('top_k').value, 10),
+    repetition_penalty: parseFloat(document.getElementById('repetition_penalty').value),
+    seed:               parseInt(document.getElementById('seed').value, 10),
+    ...modelArgs(),
+  };
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const tStart   = performance.now();
+  let   sampleRate = null;
+  let   tGenEnd    = null;
+  let   tPlayEnd   = null;
+  let   stopped    = false;
+
+  const player = createPcmPlayer(audioCtx, {
+    getSampleRate: () => sampleRate,
+    tStart,
+  });
+  lastPlayer = player;
+
+  // Buffered modes send the whole text up front. Mark that as a single
+  // text-in event at t=0 on the timeline so the events row isn't empty.
+  setTextEvents([{
+    ms: 0,
+    label: (body.text || '').slice(0, 60),
+    kind: 'text',
+  }]);
+
+  const ticker = createTimelineTicker({
+    tStart, expectedMs,
+    getState: () => ({ ...player.state(), tGenEnd, tPlayEnd }),
+  });
+
+  const abortController = new AbortController();
+  beginActiveSession({
+    stop: () => {
+      stopped = true;
+      try { abortController.abort(); } catch (_) {}
+      try { ticker.stop(); } catch (_) {}
+      try { if (audioCtx.state !== 'closed') audioCtx.close(); } catch (_) {}
+    },
+  });
+
+  try {
+    const r = await fetch('/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    });
+    if (!r.ok) {
+      status.textContent = 'Error ' + r.status + ': ' + (await r.text());
+      return;
+    }
+
+    const reader  = r.body.getReader();
+    let   pending = new Uint8Array(0);
+    let   header  = false;
+    const concatU8 = (a, b) => {
+      const out = new Uint8Array(a.length + b.length);
+      out.set(a, 0); out.set(b, a.length);
+      return out;
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!header) {
+        pending = concatU8(pending, value);
+        if (pending.length >= 44) {
+          sampleRate = readUint32LE(pending, 24);
+          const rest = pending.slice(44);
+          pending = new Uint8Array(0);
+          header  = true;
+          player.play(rest);
+        }
+      } else {
+        player.play(value);
+      }
+    }
+
+    tGenEnd = performance.now() - tStart;
+    const final = player.state();
+    tPlayEnd = final.projectedPlayEnd ?? tGenEnd;
+    ticker.poke();
+
+    // 'first audio at' only matters when chunks stream out as they
+    // are produced. In buffered modes (normal / faster) the whole
+    // response arrives at once, so tFirstAudio == tGenEnd and the
+    // metric carries no information.
+    const isStreaming  = (body.mode === 'faster_stream');
+    const audioSeconds = sampleRate ? (final.totalBytes / 2 / sampleRate) : 0;
+    const underrun = final.underrunCount > 0
+      ? ' | underruns: ' + final.underrunCount +
+        ' (' + final.underrunTotalMs.toFixed(0) + ' ms)'
+      : '';
+    status.textContent =
+      'Done. Generation: ' + Math.round(tGenEnd) + ' ms' +
+      (isStreaming && final.tFirstAudio !== null
+        ? ' | first audio at ' + Math.round(final.tFirstAudio) + ' ms'
+        : '') +
+      ' | audio: ' + audioSeconds.toFixed(2) + ' s (' +
+      (final.totalBytes / 1024).toFixed(0) + ' KB PCM)' +
+      underrun;
+  } catch (e) {
+    if (stopped || e.name === 'AbortError') {
+      status.textContent = 'Stopped.';
+    } else {
+      status.textContent = 'Failed: ' + e.message;
+    }
+  } finally {
+    button.disabled = false;
+    if (stopped) {
+      endActiveSession();
+    } else {
+      // Generation done. Keep the session live until scheduled audio
+      // has actually played out so the user can still hit Stop during
+      // playback.
+      const final = player.state();
+      const playEnd = final.projectedPlayEnd;
+      if (playEnd === null) {
+        endActiveSession();
+      } else {
+        const remainingMs = Math.max(
+          0, playEnd - (performance.now() - tStart));
+        setTimeout(endActiveSession, remainingMs + 100);
+      }
+    }
+  }
+}
+
+async function warmupOne(size, type_, statusPrefix) {
+  const status = document.getElementById('status');
+  status.textContent = (statusPrefix || '') + 'Warming ' + size + '-' + type_ + ' ...';
+  const t0 = performance.now();
+  const r = await fetch('/warmup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_size: size, model_type: type_ }),
+  });
+  if (!r.ok) {
+    throw new Error(size + '-' + type_ + ': ' + r.status + ' ' + (await r.text()));
+  }
+  const info = await r.json();
+  refreshLoadedModels();
+  return {
+    size, type: type_,
+    load_ms: info.model_load_ms,
+    capture_ms: info.graph_warmup_ms,
+    wall_ms: Math.round(performance.now() - t0),
+    skipped_capture: !!info.skipped_capture,
+    skip_reason: info.skip_reason || '',
+  };
+}
+
+async function warmup() {
+  const status = document.getElementById('status');
+  const buttons = [document.getElementById('warmup'), document.getElementById('warmup_all')];
+  buttons.forEach(b => b.disabled = true);
+  const { model_size, model_type } = modelArgs();
+  try {
+    const r = await warmupOne(model_size, model_type, '');
+    const captureBit = r.skipped_capture
+      ? 'graph capture skipped (' + r.skip_reason + ')'
+      : 'graph capture: ' + r.capture_ms + ' ms';
+    status.textContent =
+      'Warm ' + r.size + '-' + r.type + '. Load: ' + r.load_ms + ' ms' +
+      ', ' + captureBit +
+      ' (wall: ' + r.wall_ms + ' ms)';
+  } catch (e) {
+    status.textContent = 'Warmup failed: ' + e.message;
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+async function warmupAll() {
+  const status = document.getElementById('status');
+  const buttons = [document.getElementById('warmup'), document.getElementById('warmup_all')];
+  buttons.forEach(b => b.disabled = true);
+  const all = [];
+  for (const size of Object.keys(TYPES_BY_SIZE)) {
+    for (const t of TYPES_BY_SIZE[size]) {
+      all.push({ size, type: t.value });
+    }
+  }
+  const results = [];
+  try {
+    for (let i = 0; i < all.length; i++) {
+      const { size, type } = all[i];
+      const prefix = '[' + (i + 1) + '/' + all.length + '] ';
+      const r = await warmupOne(size, type, prefix);
+      results.push(r);
+    }
+    status.textContent = 'All warm. ' + results.map(r =>
+      r.size + '-' + r.type + ': ' + r.wall_ms + ' ms'
+    ).join('  |  ');
+  } catch (e) {
+    status.textContent = 'Warmup-all failed: ' + e.message;
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+// ============ streaming-text-input mode (4th engine) ===================
+
+let inputStreamState = null;   // null when idle, else { ws, lastSentLen, ... }
+
+function isStreamingInputMode() {
+  const m = document.getElementById('mode').value;
+  return m === 'input_stream' || m === 'smart_input_stream';
+}
+
+function isSmartInputMode() {
+  return document.getElementById('mode').value === 'smart_input_stream';
+}
+
+function refreshModeUi() {
+  const stream = isStreamingInputMode();
+  document.getElementById('pushed-preview').hidden = !stream;
+  document.getElementById('push-delay-label').hidden = !stream;
+  document.getElementById('smart-min-initial-label').hidden = !isSmartInputMode();
+  document.getElementById('smart-max-initial-label').hidden = !isSmartInputMode();
+  document.getElementById('smart-safety-margin-label').hidden = !isSmartInputMode();
+  if (stream) document.getElementById('pushed-preview').textContent = '';
+}
+
+// Not every (size, type) combo exists on HuggingFace - 0.6B is only
+// shipped as Base + CustomVoice, no VoiceDesign. Refresh the Type
+// dropdown whenever Size changes and snap an invalid current value
+// to the first available option.
+const TYPES_BY_SIZE = {
+  "0.6B": [
+    { value: "Base",        label: "Base (voice clone, uses ref audio)" },
+    { value: "CustomVoice", label: "CustomVoice (built-in speaker preset)" },
+  ],
+  "1.7B": [
+    { value: "Base",        label: "Base (voice clone, uses ref audio)" },
+    { value: "CustomVoice", label: "CustomVoice (built-in speaker preset)" },
+    { value: "VoiceDesign", label: "VoiceDesign (free-form instruct)" },
+  ],
+};
+
+function refreshModelTypeOptions() {
+  const sizeSel = document.getElementById('model_size');
+  const typeSel = document.getElementById('model_type');
+  const allowed = TYPES_BY_SIZE[sizeSel.value] || TYPES_BY_SIZE["1.7B"];
+  const prev    = typeSel.value;
+  typeSel.innerHTML = '';
+  for (const opt of allowed) {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    typeSel.appendChild(o);
+  }
+  // Restore the previous selection if it still applies; otherwise pick first.
+  if (allowed.some(o => o.value === prev)) typeSel.value = prev;
+  else typeSel.value = allowed[0].value;
+}
+
+document.getElementById('model_size').addEventListener('change', refreshModelTypeOptions);
+
+function modelArgs() {
+  const args = {
+    model_size: document.getElementById('model_size').value,
+    model_type: document.getElementById('model_type').value,
+  };
+  const spk = document.getElementById('speaker').value;
+  if (spk) args.speaker = spk;
+  if (args.model_type === 'VoiceDesign') {
+    args.instruct = document.getElementById('instruct').value || 'Speak in a clear, neutral voice.';
+  }
+  return args;
+}
+
+let loadedModelKeys = new Set();
+
+async function refreshLoadedModels() {
+  const host = document.getElementById('loaded-models');
+  try {
+    const r = await fetch('/status');
+    const info = await r.json();
+    host.innerHTML = '';
+    loadedModelKeys = new Set();
+    for (const m of (info.loaded || [])) {
+      loadedModelKeys.add(m.size + '-' + m.type);
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = m.size + '-' + m.type + ' ';
+      const x = document.createElement('span');
+      x.className = 'x';
+      x.textContent = '×';
+      x.title = 'unload ' + m.size + '-' + m.type;
+      x.addEventListener('click', async () => {
+        x.textContent = '...';
+        try {
+          await fetch('/unload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_size: m.size, model_type: m.type }),
+          });
+        } catch (e) { /* ignore */ }
+        refreshLoadedModels();
+      });
+      tag.appendChild(x);
+      host.appendChild(tag);
+    }
+  } catch (e) {
+    host.textContent = 'status unavailable: ' + e.message;
+  }
+  refreshWarmupButtons();
+}
+
+function refreshWarmupButtons() {
+  const size = document.getElementById('model_size').value;
+  const type_ = document.getElementById('model_type').value;
+  const wOne = document.getElementById('warmup');
+  const wAll = document.getElementById('warmup_all');
+
+  const currentLoaded = loadedModelKeys.has(size + '-' + type_);
+  wOne.disabled = currentLoaded;
+  wOne.title = currentLoaded ? 'already loaded' : '';
+
+  let totalVariants = 0;
+  for (const s of Object.keys(TYPES_BY_SIZE)) totalVariants += TYPES_BY_SIZE[s].length;
+  const allLoaded = loadedModelKeys.size >= totalVariants;
+  wAll.disabled = allLoaded;
+  wAll.title = allLoaded ? 'all variants already loaded' : '';
+}
+
+async function refreshSpeakerOptions() {
+  const typeSel = document.getElementById('model_type');
+  const sizeSel = document.getElementById('model_size');
+  const speakerLabel = document.getElementById('speaker-label');
+  const speakerSel   = document.getElementById('speaker');
+  const instructLabel = document.getElementById('instruct-label');
+
+  instructLabel.hidden = (typeSel.value !== 'VoiceDesign');
+
+  if (typeSel.value !== 'CustomVoice') {
+    speakerLabel.hidden = true;
+    return;
+  }
+  speakerLabel.hidden = false;
+  const prev = speakerSel.value;
+  // value="" so the loading placeholder never gets POSTed as a real
+  // speaker name if the user clicks Synthesize too fast - the server
+  // would otherwise reject "(loading ...)" with ValueError.
+  speakerSel.innerHTML = '<option value="">(loading ...)</option>';
+  speakerSel.disabled = true;
+  try {
+    const url = '/speakers?size=' + encodeURIComponent(sizeSel.value) +
+                '&type=' + encodeURIComponent(typeSel.value);
+    const r = await fetch(url);
+    const info = await r.json();
+    speakerSel.innerHTML = '';
+    const names = (info.speakers && info.speakers.length) ? info.speakers : ['default'];
+    for (const n of names) {
+      const o = document.createElement('option');
+      o.value = n;
+      o.textContent = n;
+      speakerSel.appendChild(o);
+    }
+    if (names.includes(prev)) speakerSel.value = prev;
+  } catch (e) {
+    speakerSel.innerHTML = '<option value="">(none)</option>';
+  } finally {
+    speakerSel.disabled = false;
+  }
+}
+
+document.getElementById('model_type').addEventListener('change', () => {
+  refreshSpeakerOptions();
+  refreshWarmupButtons();
+  refreshGoGate();
+});
+document.getElementById('model_size').addEventListener('change', () => {
+  // Type may have just been remapped (e.g. VoiceDesign -> Base on 0.6B);
+  // refresh speakers after refreshModelTypeOptions has already run.
+  refreshSpeakerOptions();
+  refreshWarmupButtons();
+  refreshGoGate();
+});
+
+function updatePushedPreview(text, until) {
+  const div = document.getElementById('pushed-preview');
+  div.textContent = text.slice(0, until);
+}
+
+document.getElementById('mode').addEventListener('change', refreshModeUi);
+
+async function startInputStream() {
+  stopReplay();
+  const status    = document.getElementById('status');
+  const button    = document.getElementById('go');
+  const textInput = document.getElementById('text');
+  status.textContent = 'Opening stream ...';
+  document.getElementById('timeline').hidden = true;
+  setTextEvents([]);
+  let autoPushTimer = null;
+
+  const audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  const tStart     = performance.now();
+  const expectedMs = Math.max(500, parseInt(document.getElementById('expected_ms').value, 10) || 5000);
+  let   sampleRate = null;
+  let   tGenEnd    = null;
+  let   tPlayEnd   = null;
+
+  const player = createPcmPlayer(audioCtx, {
+    getSampleRate: () => sampleRate,
+    tStart,
+  });
+  lastPlayer = player;
+  const ticker = createTimelineTicker({
+    tStart, expectedMs,
+    getState: () => ({ ...player.state(), tGenEnd, tPlayEnd }),
+  });
+
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${wsProto}://${location.host}/stream`);
+  ws.binaryType = 'arraybuffer';
+
+  let lastPushedPos = 0;
+
+  const pushNextWord = () => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const text = textInput.value;
+    const rest = text.slice(lastPushedPos);
+    const m = rest.match(/^\s*\S+\s*/);
+    if (!m) {
+      // Nothing left to push - treat the click as Finish.
+      if (inputStreamState) inputStreamState.finish();
+      return;
+    }
+    const chunk = m[0];
+    ws.send(JSON.stringify({ type: 'text', content: chunk }));
+    lastPushedPos += chunk.length;
+    updatePushedPreview(text, lastPushedPos);
+    addTextEvent({
+      ms: performance.now() - tStart,
+      label: chunk.trim().slice(0, 30),
+      kind: 'text',
+    });
+    status.textContent = 'Pushed "' + chunk.trim() + '" (' + lastPushedPos + '/' + text.length + ' chars).';
+
+    // If that was the last word (no non-whitespace remains in the
+    // textarea past our cursor), auto-finish so the user doesn't
+    // have to click Finish separately.
+    const remaining = text.slice(lastPushedPos);
+    if (!/\S/.test(remaining) && inputStreamState) {
+      inputStreamState.finish();
+    }
+  };
+
+  inputStreamState = {
+    pushNextWord,
+    finish: () => {
+      // Send any tail past the last word boundary, then complete.
+      const text = textInput.value;
+      if (text.length > lastPushedPos) {
+        const tail = text.slice(lastPushedPos);
+        if (tail.trim().length > 0) {
+          ws.send(JSON.stringify({ type: 'text', content: tail }));
+          addTextEvent({
+            ms: performance.now() - tStart,
+            label: tail.trim().slice(0, 30),
+            kind: 'text',
+          });
+          lastPushedPos = text.length;
+          updatePushedPreview(text, lastPushedPos);
+        }
+      }
+      ws.send(JSON.stringify({ type: 'complete' }));
+      addTextEvent({
+        ms: performance.now() - tStart,
+        label: 'complete',
+        kind: 'complete',
+      });
+      // Lock the Synthesize/Finish button so the user can't fire a
+      // second 'complete' after the stream has been ended.
+      // cleanup() re-enables it on WS close.
+      button.disabled  = true;
+      if (autoPushTimer !== null) {
+        clearInterval(autoPushTimer);
+        autoPushTimer = null;
+      }
+      status.textContent = 'Finishing ...';
+    },
+  };
+
+  const smartBuffer = isSmartInputMode();
+  const smartMinInitial = Math.max(1,
+    parseInt(document.getElementById('smart_min_initial_words').value, 10) || 5);
+  const smartMaxInitial = Math.max(smartMinInitial,
+    parseInt(document.getElementById('smart_max_initial_words').value, 10) || 30);
+  const smartSafetyMs = Math.max(50,
+    parseInt(document.getElementById('smart_safety_margin_ms').value, 10) || 300);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type:                      'init',
+      language:                  document.getElementById('language').value,
+      instruct:                  document.getElementById('instruct')?.value || 'Speak in a clear, neutral voice.',
+      temperature:               parseFloat(document.getElementById('temperature').value),
+      top_k:                     parseInt(document.getElementById('top_k').value, 10),
+      repetition_penalty:        parseFloat(document.getElementById('repetition_penalty').value),
+      seed:                      parseInt(document.getElementById('seed').value, 10),
+      smart_buffer:              smartBuffer,
+      smart_min_initial_words:   smartMinInitial,
+      smart_max_initial_words:   smartMaxInitial,
+      smart_safety_margin_ms:    smartSafetyMs,
+      ...modelArgs(),
+    }));
+    const delayMs = Math.max(0,
+      parseInt(document.getElementById('push_delay_ms').value, 10) || 0);
+    status.textContent = 'Stream open. Auto-pushing words every ' + delayMs + ' ms.';
+    button.textContent = 'Finish';
+    button.disabled    = false;
+
+    // Kick off the auto-pusher. Each tick pushes one whole word; the
+    // last word path inside pushNextWord auto-finishes the stream,
+    // so the interval clears itself on the next tick.
+    autoPushTimer = setInterval(() => {
+      if (!inputStreamState) {
+        clearInterval(autoPushTimer);
+        autoPushTimer = null;
+        return;
+      }
+      inputStreamState.pushNextWord();
+    }, delayMs);
+  };
+
+  ws.onmessage = (ev) => {
+    if (typeof ev.data !== 'string') {
+      player.play(new Uint8Array(ev.data));
+      return;
+    }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'ready') {
+      sampleRate = msg.sample_rate;
+    } else if (msg.type === 'flush') {
+      // Sample-offset of the audio that's been emitted up to NOW.
+      // Audio for this flush starts at this offset; the next flush
+      // event (or end-of-stream) marks where it ends. We use these
+      // boundaries so clicking the flush bar can play just this
+      // chunk's audio in isolation.
+      const samplesSoFar = Math.floor(player.state().totalBytes / 2);
+      addTextEvent({
+        ms: performance.now() - tStart,
+        label: (msg.content || '').trim(),
+        kind: 'flush',
+        audioStartSample: samplesSoFar,
+      });
+    } else if (msg.type === 'done') {
+      tGenEnd = performance.now() - tStart;
+      const final = player.state();
+      tPlayEnd = final.projectedPlayEnd ?? tGenEnd;
+      ticker.poke();
+      cleanup();
+      const audioSeconds = sampleRate ? (final.totalBytes / 2 / sampleRate) : 0;
+      const underrun = final.underrunCount > 0
+        ? ' | underruns: ' + final.underrunCount +
+          ' (' + final.underrunTotalMs.toFixed(0) + ' ms)'
+        : '';
+      status.textContent =
+        'Done. ' + Math.round(tGenEnd) + ' ms wall' +
+        (final.tFirstAudio !== null
+          ? ' | first audio at ' + Math.round(final.tFirstAudio) + ' ms'
+          : '') +
+        ' | audio: ' + audioSeconds.toFixed(2) + ' s (' +
+        (final.totalBytes / 1024).toFixed(0) + ' KB PCM)' +
+        underrun;
+    } else if (msg.type === 'error') {
+      status.textContent = 'Stream error: ' + msg.message;
+      cleanup();
+    }
+  };
+
+  ws.onerror = () => { status.textContent = 'WebSocket error'; cleanup(); };
+  ws.onclose = () => { cleanup(); };
+
+  let stopped = false;
+  beginActiveSession({
+    stop: () => {
+      stopped = true;
+      try { ws.close(); } catch (_) {}
+      try { ticker.stop(); } catch (_) {}
+      try { if (audioCtx.state !== 'closed') audioCtx.close(); } catch (_) {}
+      status.textContent = 'Stopped.';
+    },
+  });
+
+  const cleanup = () => {
+    if (autoPushTimer !== null) {
+      clearInterval(autoPushTimer);
+      autoPushTimer = null;
+    }
+    button.textContent = 'Synthesize';
+    button.disabled    = false;
+    inputStreamState   = null;
+    updatePushedPreview('', 0);
+    if (stopped) {
+      // cleanup() may run after onclose; preserve the 'Stopped.' status.
+      status.textContent = 'Stopped.';
+      endActiveSession();
+    } else {
+      // Keep the session live until the audio queue plays out so Stop
+      // remains available during playback.
+      const final = player.state();
+      const playEnd = final.projectedPlayEnd;
+      if (playEnd === null) {
+        endActiveSession();
+      } else {
+        const remainingMs = Math.max(
+          0, playEnd - (performance.now() - tStart));
+        setTimeout(endActiveSession, remainingMs + 100);
+      }
+    }
+  };
+}
+
+function finishInputStream() {
+  if (inputStreamState) inputStreamState.finish();
+}
+
+async function onGoClicked() {
+  if (isStreamingInputMode()) {
+    if (inputStreamState) {
+      finishInputStream();
+    } else {
+      const button = document.getElementById('go');
+      button.disabled = true;
+      await startInputStream();
+    }
+  } else {
+    await synth();
+  }
+}
+
+// Last generation's player, kept so the Replay button can rebuild
+// the audio from its stored Float32 pieces.
+let lastPlayer = null;
+
+// Active synth/stream session. Exposes a stop() that aborts the fetch
+// or closes the websocket and tears down playback. Null when idle.
+let activeSession = null;
+
+function beginActiveSession(session) {
+  activeSession = session;
+  const stop = document.getElementById('stop');
+  stop.hidden = false;
+  stop.disabled = false;
+}
+
+function endActiveSession() {
+  activeSession = null;
+  const stop = document.getElementById('stop');
+  stop.hidden = true;
+  stop.disabled = false;
+}
+
+function stopActiveSession() {
+  if (!activeSession) return;
+  const session = activeSession;
+  activeSession = null;
+  try { session.stop(); } catch (_) {}
+  const stop = document.getElementById('stop');
+  stop.hidden = true;
+}
+
+function clearLastResult() {
+  document.getElementById('timeline').hidden = true;
+  setTextEvents([]);
+  const status = document.getElementById('status');
+  status.textContent = '';
+  delete status.dataset.gate;
+  lastPlayer = null;
+  // If Base + no reference, restore the gate message; otherwise the
+  // status line stays empty.
+  refreshGoGate();
+}
+
+let currentReplay = null;
+
+function setReplayButtonPlaying(playing) {
+  const btn = document.getElementById('replay-result');
+  if (playing) {
+    btn.textContent = '■';
+    btn.title = 'Stop replay';
+  } else {
+    btn.textContent = '▶';
+    btn.title = 'Replay audio';
+  }
+}
+
+function stopReplay() {
+  if (!currentReplay) return;
+  const handle = currentReplay;
+  currentReplay = null;
+  handle.stop();
+  setReplayButtonPlaying(false);
+}
+
+function replayLastResult() {
+  if (currentReplay) {
+    stopReplay();
+    return;
+  }
+  if (!lastPlayer) return;
+  const handle = lastPlayer.replay();
+  if (!handle) return;
+  currentReplay = handle;
+  handle.onEnded(() => {
+    if (currentReplay === handle) {
+      currentReplay = null;
+      setReplayButtonPlaying(false);
+    }
+  });
+  setReplayButtonPlaying(true);
+}
+
+function playFlushChunkFromBar(e) {
+  if (!lastPlayer) return;
+  // Stop any currently-running replay (whether full-result or
+  // another chunk) before starting this one so they don't overlap.
+  stopReplay();
+  const bar     = e.currentTarget;
+  const start   = parseInt(bar.dataset.audioStart || '0', 10);
+  const endStr  = bar.dataset.audioEnd || '';
+  const end     = endStr === '' ? null : parseInt(endStr, 10);
+  const handle  = lastPlayer.replaySlice(start, end);
+  if (!handle) return;
+  currentReplay = handle;
+  handle.onEnded(() => {
+    if (currentReplay === handle) {
+      currentReplay = null;
+      setReplayButtonPlaying(false);
+    }
+  });
+  setReplayButtonPlaying(true);
+}
+
+function saveLastResult() {
+  if (!lastPlayer) return;
+  const blob = lastPlayer.toWavBlob();
+  if (!blob) return;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `qwen3-tts-${ts}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Persist UI control values across page reloads so test runs are
+// repeatable without re-entering knobs every time. localStorage is
+// per-origin, so the dev server's URL is the key scope.
+const SETTINGS_KEY = 'qwen3-tts-demo-settings-v1';
+const PERSIST_IDS = [
+  'model_size', 'model_type', 'speaker', 'instruct',
+  'language', 'temperature', 'top_k', 'repetition_penalty', 'seed',
+  'mode', 'text',
+  'expected_ms', 'push_delay_ms',
+  'smart_min_initial_words', 'smart_max_initial_words', 'smart_safety_margin_ms',
+];
+
+function loadPersistedSettings() {
+  let raw = null;
+  try { raw = localStorage.getItem(SETTINGS_KEY); } catch (_) { return; }
+  if (!raw) return;
+  let saved = null;
+  try { saved = JSON.parse(raw); } catch (_) { return; }
+  if (!saved || typeof saved !== 'object') return;
+  for (const id of PERSIST_IDS) {
+    if (saved[id] === undefined || saved[id] === null) continue;
+    const el = document.getElementById(id);
+    if (el) el.value = saved[id];
+  }
+}
+
+function savePersistedSettings() {
+  const out = {};
+  for (const id of PERSIST_IDS) {
+    const el = document.getElementById(id);
+    if (el && el.value !== undefined && el.value !== null) {
+      out[id] = el.value;
+    }
+  }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(out)); } catch (_) {}
+}
+
+function wirePersistence() {
+  for (const id of PERSIST_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    // 'input' fires on every keystroke (text/number); 'change' covers
+    // selects and the post-blur save. Both are cheap with localStorage
+    // and a tiny payload.
+    el.addEventListener('input',  savePersistedSettings);
+    el.addEventListener('change', savePersistedSettings);
+  }
+}
+
+document.getElementById('warmup').addEventListener('click', warmup);
+document.getElementById('warmup_all').addEventListener('click', warmupAll);
+document.getElementById('ref_upload').addEventListener('click', uploadReference);
+document.getElementById('go').addEventListener('click', onGoClicked);
+document.getElementById('stop').addEventListener('click', stopActiveSession);
+document.getElementById('clear-result').addEventListener('click', clearLastResult);
+document.getElementById('replay-result').addEventListener('click', replayLastResult);
+document.getElementById('save-result').addEventListener('click', saveLastResult);
+
+// Restore BEFORE the refresh chain so the dynamic dropdowns
+// (model_type, speaker) see the restored selection and the
+// preserve-current-value logic in their refresh functions keeps it.
+loadPersistedSettings();
+refresh_reference();
+refreshModelTypeOptions();
+refreshSpeakerOptions();
+refreshModeUi();
+refreshLoadedModels();
+wirePersistence();
+</script>
+</body>
+</html>
